@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="3.0" xmlns:edmx="http://schemas.microsoft.com/ado/2009/11/edmx">
+  <!-- EF Runtime content -->
+  <edmx:Runtime>
+    <!-- SSDL content -->
+    <edmx:StorageModels>
+    <Schema Namespace="MaintenanceSolutionModel.Store" Provider="System.Data.SqlClient" ProviderManifestToken="2012" Alias="Self" xmlns:store="http://schemas.microsoft.com/ado/2007/12/edm/EntityStoreSchemaGenerator" xmlns:customannotation="http://schemas.microsoft.com/ado/2013/11/edm/customannotation" xmlns="http://schemas.microsoft.com/ado/2009/11/edm/ssdl">
+        <EntityType Name="ParallelExecutionConfiguration">
+          <Key>
+            <PropertyRef Name="SessionId" />
+          </Key>
+          <Property Name="SessionId" Type="uniqueidentifier" Nullable="false" />
+          <Property Name="SessionStatus" Type="int" Nullable="false" />
+          <Property Name="MaxDegreeOfParallelism" Type="int" Nullable="false" />
+          <Property Name="PartitionStatement" Type="nvarchar(max)" Nullable="false" />
+          <Property Name="PartitionCommand" Type="nvarchar(max)" Nullable="false" />
+          <Property Name="DraftDate" Type="datetime" />
+          <Property Name="QueuedDate" Type="datetime" />
+          <Property Name="ProcessingDate" Type="datetime" />
+          <Property Name="FailedDate" Type="datetime" />
+          <Property Name="CompleteDate" Type="datetime" />
+          <Property Name="Comments" Type="nvarchar(max)" />
+        </EntityType>
+        <Function Name="usp_CreateParallelExecution" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="dbo">
+          <Parameter Name="Status" Type="int" Mode="In" />
+          <Parameter Name="MaxDegreeOfParallelism" Type="int" Mode="In" />
+          <Parameter Name="PartitionStatement" Type="nvarchar(max)" Mode="In" />
+          <Parameter Name="PartitionCommand" Type="nvarchar(max)" Mode="In" />
+          <Parameter Name="SessionId" Type="uniqueidentifier" Mode="InOut" />
+        </Function>
+        <Function Name="usp_PullNextParallelExecution" Aggregate="false" BuiltIn="false" NiladicFunction="false" IsComposable="false" ParameterTypeSemantics="AllowImplicitConversion" Schema="dbo" />
+        <EntityContainer Name="MaintenanceSolutionModelStoreContainer">
+          <EntitySet Name="ParallelExecutionConfiguration" EntityType="Self.ParallelExecutionConfiguration" Schema="dbo" store:Type="Tables" />
+        </EntityContainer>
+      </Schema></edmx:StorageModels>
+    <!-- CSDL content -->
+    <edmx:ConceptualModels>
+      <Schema Namespace="MaintenanceSolutionModel" Alias="Self" annotation:UseStrongSpatialTypes="false" xmlns:annotation="http://schemas.microsoft.com/ado/2009/02/edm/annotation" xmlns:customannotation="http://schemas.microsoft.com/ado/2013/11/edm/customannotation" xmlns="http://schemas.microsoft.com/ado/2009/11/edm">
+        <EntityType Name="ParallelExecutionConfiguration">
+          <Key>
+            <PropertyRef Name="SessionId" />
+          </Key>
+          <Property Name="SessionId" Type="Guid" Nullable="false" />
+          <Property Name="SessionStatus" Type="Int32" Nullable="false" />
+          <Property Name="MaxDegreeOfParallelism" Type="Int32" Nullable="false" />
+          <Property Name="PartitionStatement" Type="String" MaxLength="Max" FixedLength="false" Unicode="true" Nullable="false" />
+          <Property Name="PartitionCommand" Type="String" MaxLength="Max" FixedLength="false" Unicode="true" Nullable="false" />
+          <Property Name="DraftDate" Type="DateTime" Precision="3" />
+          <Property Name="QueuedDate" Type="DateTime" Precision="3" />
+          <Property Name="ProcessingDate" Type="DateTime" Precision="3" />
+          <Property Name="FailedDate" Type="DateTime" Precision="3" />
+          <Property Name="CompleteDate" Type="DateTime" Precision="3" />
+          <Property Name="Comments" Type="String" MaxLength="Max" FixedLength="false" Unicode="true" />
+        </EntityType>
+        <EntityContainer Name="MaintenanceSolutionEntities" annotation:LazyLoadingEnabled="true">
+          <EntitySet Name="ParallelExecutionConfigurations" EntityType="Self.ParallelExecutionConfiguration" />
+          <FunctionImport Name="usp_CreateParallelExecution">
+            <Parameter Name="Status" Mode="In" Type="Int32" />
+            <Parameter Name="MaxDegreeOfParallelism" Mode="In" Type="Int32" />
+            <Parameter Name="PartitionStatement" Mode="In" Type="String" />
+            <Parameter Name="PartitionCommand" Mode="In" Type="String" />
+            <Parameter Name="SessionId" Mode="InOut" Type="Guid" />
+          </FunctionImport>
+          <FunctionImport Name="usp_PullNextParallelExecution" ReturnType="Collection(Guid)" />
+        </EntityContainer>
+      </Schema>
+    </edmx:ConceptualModels>
+    <!-- C-S mapping content -->
+    <edmx:Mappings>
+      <Mapping Space="C-S" xmlns="http://schemas.microsoft.com/ado/2009/11/mapping/cs">
+        <EntityContainerMapping StorageEntityContainer="MaintenanceSolutionModelStoreContainer" CdmEntityContainer="MaintenanceSolutionEntities">
+          <EntitySetMapping Name="ParallelExecutionConfigurations">
+            <EntityTypeMapping TypeName="MaintenanceSolutionModel.ParallelExecutionConfiguration">
+              <MappingFragment StoreEntitySet="ParallelExecutionConfiguration">
+                <ScalarProperty Name="Comments" ColumnName="Comments" />
+                <ScalarProperty Name="SessionId" ColumnName="SessionId" />
+                <ScalarProperty Name="SessionStatus" ColumnName="SessionStatus" />
+                <ScalarProperty Name="MaxDegreeOfParallelism" ColumnName="MaxDegreeOfParallelism" />
+                <ScalarProperty Name="PartitionStatement" ColumnName="PartitionStatement" />
+                <ScalarProperty Name="PartitionCommand" ColumnName="PartitionCommand" />
+                <ScalarProperty Name="DraftDate" ColumnName="DraftDate" />
+                <ScalarProperty Name="QueuedDate" ColumnName="QueuedDate" />
+                <ScalarProperty Name="ProcessingDate" ColumnName="ProcessingDate" />
+                <ScalarProperty Name="FailedDate" ColumnName="FailedDate" />
+                <ScalarProperty Name="CompleteDate" ColumnName="CompleteDate" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <FunctionImportMapping FunctionImportName="usp_CreateParallelExecution" FunctionName="MaintenanceSolutionModel.Store.usp_CreateParallelExecution" />
+          <FunctionImportMapping FunctionImportName="usp_PullNextParallelExecution" FunctionName="MaintenanceSolutionModel.Store.usp_PullNextParallelExecution" />
+        </EntityContainerMapping>
+      </Mapping>
+    </edmx:Mappings>
+  </edmx:Runtime>
+  <!-- EF Designer content (DO NOT EDIT MANUALLY BELOW HERE) -->
+  <Designer xmlns="http://schemas.microsoft.com/ado/2009/11/edmx">
+    <Connection>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="MetadataArtifactProcessing" Value="EmbedInOutputAssembly" />
+      </DesignerInfoPropertySet>
+    </Connection>
+    <Options>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="ValidateOnBuild" Value="true" />
+        <DesignerProperty Name="EnablePluralization" Value="true" />
+        <DesignerProperty Name="IncludeForeignKeysInModel" Value="true" />
+        <DesignerProperty Name="UseLegacyProvider" Value="false" />
+        <DesignerProperty Name="CodeGenerationStrategy" Value="None" />
+      </DesignerInfoPropertySet>
+    </Options>
+    <!-- Diagram content (shape and connector positions) -->
+    <Diagrams></Diagrams>
+  </Designer>
+</edmx:Edmx>
