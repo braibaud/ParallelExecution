@@ -1,15 +1,12 @@
-﻿using System;
+﻿using PE.Data;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data.SqlClient;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 
-namespace ParallelExecution
+namespace PE
 {
     /// <summary>
     /// 
@@ -17,32 +14,9 @@ namespace ParallelExecution
     class Program
     {
         /// <summary>
-        /// The app tracing
-        /// </summary>
-        public static TraceSource AppTracing = new TraceSource("AppTracing");
-
-        /// <summary>
-        /// The mail sender
-        /// </summary>
-        /// <value>
-        /// The mail sender.
-        /// </value>
-        public static SmtpHelper MailSender { get; private set; }
-
-        /// <summary>
         /// The application name
         /// </summary>
         private const string ApplicationName = "ParallelExecution";
-
-        /// <summary>
-        /// Gets the log path.
-        /// </summary>
-        /// <value>The log path.</value>
-        public static string LogPath
-        {
-            get;
-            private set;
-        }
 
         /// <summary>
         /// Gets or sets the configuration keys.
@@ -55,32 +29,17 @@ namespace ParallelExecution
         }
 
         /// <summary>
-        /// Executes the query.
+        /// The current configuration
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="connection">The connection.</param>
-        /// <param name="query">The query.</param>
-        /// <param name="function">The function.</param>
-        /// <returns></returns>
-        public static IEnumerable<T> ExecuteQuery<T>(
-            SqlConnection connection,
-            string query,
-            Func<SqlDataReader, T> function)
-        {
-            using (SqlCommand cmd = new SqlCommand(query, connection))
-            {
-                using (SqlDataReader reader = cmd.ExecuteReader())
-                {
-                    while (reader.Read())
-                    {
-                        yield return function(reader);
-                    }
-                }
-            }
-        }
+        private static ParallelExecution currentConfiguration;
 
-        private static int exitCode;
-        private static ParallelExecutionConfiguration currentConfiguration;
+        /// <summary>
+        /// Gets or sets the exit code.
+        /// </summary>
+        /// <value>
+        /// The exit code.
+        /// </value>
+        public static int ExitCode { get; set; }
 
         /// <summary>
         /// Main function.
@@ -88,219 +47,121 @@ namespace ParallelExecution
         /// <param name="args">The args.</param>
         static int Main(string[] args)
         {
-            exitCode = 0;
+            ExitCode = 0;
             AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
 
             try
             {
-                TraceSourceExtensionMethods.EventTraced += new EventHandler<TraceEventArgs>(TraceSourceExtensionMethods_EventTraced);
-
                 LoadAllConfigurationKeys();
-                SetupTracing();
 
-                // setup emails...
-                MailSender = new SmtpHelper(GetConfigurationValueAsString(AllConfigurationKeys.smtpServer.ToString()));
+                currentConfiguration = DataHelpers.usp_PullNextParallelExecution(null);
 
-                using (MaintenanceSolutionEntities ctx = new MaintenanceSolutionEntities())
+                if (currentConfiguration != null)
                 {
-                    AppTracing.TraceInformation("{0} - Calling stored procedure '{1}'...", DateTime.UtcNow, "dbo.usp_PullNextParallelExecution");
-                    List<Guid?> results = ctx.usp_PullNextParallelExecution().ToList();
+                    List<Partition> partitions = DataHelpers.GetPartitions(
+                        null,
+                        currentConfiguration.PartitionStatement);
 
-                    if (results != null &&
-                        results.Any() &&
-                        results.First().HasValue)
+                    foreach (Partition partition in partitions)
                     {
-                        Guid result = results.First().Value;
-                        AppTracing.TraceInformation("{0} - There is a job queued '{1}'...", DateTime.UtcNow, result.ToString());
+                        partition.PartitionId = DataHelpers.usp_CreateParallelExecutionPartition(
+                            null,
+                            currentConfiguration.SessionId);
 
-                        try
+                        foreach (KeyValuePair<int, object> parameter in partition.Parameters)
                         {
-                            currentConfiguration = ctx
-                                    .ParallelExecutionConfigurations
-                                    .Where(t => t.SessionId == result)
-                                    .FirstOrDefault();
+                            DataHelpers.usp_CreateParallelExecutionPartitionParameter(
+                                null,
+                                currentConfiguration.SessionId,
+                                partition.PartitionId,
+                                parameter.Key,
+                                parameter.Value);
+                        }
+                    }
 
-                            if (currentConfiguration != null)
+                    ParallelLoopResult ret = Parallel.ForEach(
+                        partitions,
+                        new ParallelOptions() { MaxDegreeOfParallelism = currentConfiguration.MaxDegreeOfParallelism },
+                        partition =>
+                        {
+                            bool success = false;
+                            string error = null;
+
+                            try
                             {
-                                string mainConnectionString = (ctx.Database.Connection as SqlConnection).ConnectionString;
-                                AppTracing.TraceInformation("{0} - Config value 'mainConnectionString' set to {1}", DateTime.UtcNow, mainConnectionString);
+                                DataHelpers.usp_SetStatus_ParallelExecutionPartition(
+                                    null,
+                                    currentConfiguration.SessionId,
+                                    partition.PartitionId,
+                                    SessionPartitionStatus.Processing,
+                                    null);
 
-                                int maxDegreeOfParallelism = currentConfiguration.MaxDegreeOfParallelism;
-                                AppTracing.TraceInformation("{0} - Config value 'maxDegreeOfParallelism' set to {1}", DateTime.UtcNow, maxDegreeOfParallelism);
-
-                                List<Dictionary<int, object>> values = null;
-
-                                using (SqlConnection connection = new SqlConnection(mainConnectionString))
+                                using (SqlConnection connection = new SqlConnection(GetConfigurationValueAsString(AllConfigurationKeys.mainConnectionString.ToString())))
                                 {
                                     connection.Open();
+                                    connection.FireInfoMessageEventOnUserErrors = false;
+                                    connection.InfoMessage += (sender, message) =>
+                                                              {
+                                                                  DataHelpers.usp_LogParallelExecutionEvent(
+                                                                      null,
+                                                                      currentConfiguration.SessionId,
+                                                                      partition.PartitionId,
+                                                                      ParallelExecutionEventStatus.Information,
+                                                                      "InfoMessage",
+                                                                      message.Message);
+                                                              };
 
-                                    values = ExecuteQuery(
+                                    DataHelpers.Execute_Statement_NonQuery(
                                         connection,
-                                        currentConfiguration.PartitionStatement,
-                                        t =>
-                                        {
-                                            return ExtractParameters(t);
-                                        }).ToList();
+                                        currentConfiguration.PartitionCommand,
+                                        partition.GetSqlParameters());
                                 }
 
-                                AppTracing.TraceInformation("{0} - There are {1} partitions to process...", DateTime.UtcNow, values.Count);
-
-                                try
-                                {
-                                    ParallelLoopResult ret = Parallel.ForEach(
-                                        values,
-                                        new ParallelOptions() { MaxDegreeOfParallelism = maxDegreeOfParallelism },
-                                        value =>
-                                        {
-                                            AppTracing.TraceInformation("{0} - Processing {1}", DateTime.UtcNow, PrintParameters(value));
-
-                                            try
-                                            {
-                                                using (SqlConnection connection = new SqlConnection(mainConnectionString))
-                                                {
-                                                    connection.Open();
-
-                                                    using (SqlCommand cmd = new SqlCommand())
-                                                    {
-                                                        cmd.Connection = connection;
-                                                        cmd.CommandTimeout = 3600;
-                                                        cmd.CommandType = System.Data.CommandType.Text;
-                                                        cmd.CommandText = currentConfiguration.PartitionCommand;
-
-                                                        foreach (var entry in value)
-                                                        {
-                                                            cmd.Parameters.Add(
-                                                                new SqlParameter(
-                                                                    string.Format(
-                                                                        "@Parameter{0}",
-                                                                        entry.Key),
-                                                                    entry.Value));
-                                                        }
-
-                                                        cmd.ExecuteNonQuery();
-                                                        AppTracing.TraceInformation("{0} - Processing Complete for {1}", DateTime.UtcNow, PrintParameters(value));
-                                                    }
-                                                }
-                                            }
-                                            catch (SqlException se)
-                                            {
-                                                exitCode = 1;
-
-                                                foreach (var entry in value)
-                                                {
-                                                    se.Data.Add(
-                                                        string.Format(
-                                                            "@Parameter{0}",
-                                                            entry.Key),
-                                                        entry.Value);
-                                                }
-
-                                                LogException(se);
-                                            }
-                                        });
-                                }
-                                catch (AggregateException ae)
-                                {
-                                    throw ae.Flatten();
-                                }
-                                finally
-                                {
-                                    if (currentConfiguration != null)
-                                    {
-                                        if (exitCode == 0)
-                                        {
-                                            currentConfiguration.SessionStatus = (int)SessionStatus.Complete;
-                                            currentConfiguration.CompleteDate = DateTime.UtcNow;
-                                        }
-                                        else
-                                        {
-                                            currentConfiguration.SessionStatus = (int)SessionStatus.Failed;
-                                            currentConfiguration.FailedDate = DateTime.UtcNow;
-                                        }
-                                    }
-                                }
+                                success = true;
                             }
-                            else
+                            catch (Exception e)
                             {
-                                AppTracing.TraceInformation("{0} - No job queued at the moment...", DateTime.UtcNow);
-                            }
-                        }
-                        finally
-                        {
-                            if (ctx.ChangeTracker.HasChanges())
-                            {
-                                ctx.SaveChanges();
-                            }
+                                error = e.Message;
 
-                            currentConfiguration = null;
-                        }
-                    }
-                    else
-                    {
-                        AppTracing.TraceInformation("{0} - No job queued at the moment...", DateTime.UtcNow);
-                    }
+                                DataHelpers.usp_LogParallelExecutionEvent(
+                                    null,
+                                    currentConfiguration.SessionId,
+                                    partition.PartitionId,
+                                    ParallelExecutionEventStatus.Error,
+                                    e.Message,
+                                    e.ToString());
+                            }
+                            finally
+                            {
+                                DataHelpers.usp_SetStatus_ParallelExecutionPartition(
+                                    null,
+                                    currentConfiguration.SessionId,
+                                    partition.PartitionId,
+                                    (success ? SessionPartitionStatus.Complete : SessionPartitionStatus.Failed),
+                                    error);
+                            }
+                        });
                 }
             }
             catch (Exception e)
             {
-                exitCode = 1;
-                LogException(e);
+                TryAndReportException(e);
             }
 
-            return exitCode;
+            return ExitCode;
         }
 
-        /// <summary>
-        /// Extracts the parameters.
-        /// </summary>
-        /// <param name="t">The t.</param>
-        /// <returns></returns>
-        private static Dictionary<int, object> ExtractParameters(SqlDataReader t)
+        private static void TryAndReportException(Exception e)
         {
-            Dictionary<int, object> parameters = new Dictionary<int, object>();
+            Guid? session = (currentConfiguration != null ? (Guid?)currentConfiguration.SessionId : null);
 
-            for (int i = 0; i < t.FieldCount; i++)
-            {
-                string column = t.GetName(i);
-
-                if (column.StartsWith("Parameter", StringComparison.CurrentCultureIgnoreCase))
-                {
-                    string right = column.Substring(9);
-                    int index;
-
-                    if (int.TryParse(right, out index))
-                    {
-                        parameters.Add(index, t.GetValue(i));
-                    }
-                }
-            }
-
-            if (!parameters.Any())
-            {
-                throw new ApplicationException("No parameter found");
-            }
-
-            return parameters;
-        }
-
-        /// <summary>
-        /// Prints the parameters.
-        /// </summary>
-        /// <param name="parameters">The parameters.</param>
-        /// <returns></returns>
-        private static string PrintParameters(Dictionary<int, object> parameters)
-        {
-            return string.Join(", ", parameters.OrderBy(t => t.Key).Select(t => string.Format("Parameter{0}: '{1}'", t.Key, t.Value)));
-        }
-
-        /// <summary>
-        /// Handles the InfoMessage event of the Program control.
-        /// </summary>
-        /// <param name="sender">The source of the event.</param>
-        /// <param name="e">The <see cref="System.Data.SqlClient.SqlInfoMessageEventArgs"/> instance containing the event data.</param>
-        private static void Program_InfoMessage_ctx(object sender, SqlInfoMessageEventArgs e)
-        {
-            AppTracing.TraceInformation(e.Message);
+            DataHelpers.usp_LogParallelExecutionEvent(
+                null,
+                session,
+                null,
+                ParallelExecutionEventStatus.Error,
+                e.Message,
+                e.ToString());
         }
 
         /// <summary>
@@ -312,210 +173,17 @@ namespace ParallelExecution
             object sender,
             UnhandledExceptionEventArgs e)
         {
-            exitCode = 1;
+            ExitCode = 1;
 
             if (e.ExceptionObject is Exception)
             {
-                LogException(e.ExceptionObject as Exception);
+                TryAndReportException(
+                    e.ExceptionObject as Exception);
             }
 
             if (e.IsTerminating)
             {
                 Environment.Exit(0);
-            }
-        }
-
-        /// <summary>
-        /// Handles the EventTraced event of the TraceSourceExtensionMethods control.
-        /// </summary>
-        /// <param name="sender">The source of the event.</param>
-        /// <param name="e">The <see cref="CommonFramework.ExtensionMethods.TraceEventArgs"/> instance containing the event data.</param>
-        private static void TraceSourceExtensionMethods_EventTraced(
-            object sender,
-            TraceEventArgs e)
-        {
-            if (e.EventType <= TraceEventType.Warning)
-            {
-                XElement element = GetTraceEventArgsPrint(e);
-
-                if (currentConfiguration != null)
-                {
-                    lock (currentConfiguration)
-                    {
-                        currentConfiguration.Comments += element.ToString(SaveOptions.DisableFormatting);
-                    }
-                }
-
-                MailSender.SendTextMail(
-                    GetConfigurationValueAsString(AllConfigurationKeys.fromAddress.ToString()),
-                    string.Format(
-                        "{0} -  Application issue",
-                        ApplicationName),
-                    element.ToString(),
-                    GetTechnicalTeamEmails());
-            }
-        }
-
-        /// <summary>
-        /// Gets the assembly version.
-        /// </summary>
-        /// <value>
-        /// The assembly version.
-        /// </value>
-        public static string AssemblyVersion
-        {
-            get
-            {
-                return Assembly.GetExecutingAssembly().GetName().Version.ToString();
-            }
-        }
-
-        private static List<string> _technicalTeamEmails;
-
-        /// <summary>
-        /// Gets the technical team emails.
-        /// </summary>
-        /// <returns></returns>
-        public static List<string> GetTechnicalTeamEmails()
-        {
-            if (_technicalTeamEmails == null)
-            {
-                string emails = GetConfigurationValueAsString(AllConfigurationKeys.technicalTeamEmails.ToString());
-
-                if (!string.IsNullOrWhiteSpace(emails))
-                {
-                    _technicalTeamEmails = emails
-                        .Split(',', ';')
-                        .Where(t => !string.IsNullOrWhiteSpace(t))
-                        .Select(t => t.ToLower().Trim())
-                        .ToList();
-                }
-                else
-                {
-                    _technicalTeamEmails = Enumerable
-                        .Empty<string>()
-                        .ToList();
-                }
-            }
-
-            return _technicalTeamEmails;
-        }
-
-        /// <summary>
-        /// Gets the trace event arguments print.
-        /// </summary>
-        /// <param name="e">The <see cref="TraceEventArgs"/> instance containing the event data.</param>
-        /// <returns></returns>
-        public static XElement GetTraceEventArgsPrint(
-            TraceEventArgs e)
-        {
-            XElement arg = new XElement("TraceEventArgs");
-
-            if (e != null)
-            {
-                XElement exceptions = new XElement("Exceptions");
-
-                foreach (Exception ex in e.Exceptions)
-                {
-                    exceptions.Add(GetExceptionPrint(ex));
-                }
-
-                arg.Add(exceptions);
-
-                XElement details = new XElement("Details");
-                details.Add(new XElement("MachineName", Environment.MachineName));
-                details.Add(new XElement("Version", AssemblyVersion));
-                details.Add(new XElement("Type", e.EventType.ToString().ToLower()));
-                details.Add(new XElement("UserName", Environment.UserName));
-                details.Add(new XElement("EventText", e.EventText));
-
-                arg.Add(details);
-            }
-
-            return arg;
-        }
-
-        /// <summary>
-        /// Gets the exception message.
-        /// </summary>
-        /// <param name="e">The e.</param>
-        /// <returns></returns>
-        public static XElement GetExceptionPrint(
-            Exception e)
-        {
-            XElement exception = new XElement("Exception");
-
-            if (e != null)
-            {
-                XElement exceptions = new XElement("Exceptions");
-
-                if (e.Data != null)
-                {
-                    XElement data = new XElement("Data");
-
-                    foreach (object key in e.Data.Keys)
-                    {
-                        XElement item = new XElement("Item");
-                        item.Add(new XElement("Name", key));
-                        item.Add(new XElement("Value", e.Data[key]));
-
-                        data.Add(item);
-                    }
-
-                    exception.Add(data);
-                }
-
-                XElement details = new XElement("Details");
-                details.Add(new XElement("Type", e.GetType()));
-                details.Add(new XElement("Message", e.Message));
-                details.Add(new XElement("Source", e.Source));
-                details.Add(new XElement("StackTrace", e.StackTrace));
-
-                if (e is SqlException)
-                {
-                    SqlException se = (e as SqlException);
-                    details.Add(new XElement("ErrorCode", se.ErrorCode));
-                    details.Add(new XElement("Number", se.Number));
-                    details.Add(new XElement("Procedure", se.Procedure));
-                    details.Add(new XElement("Server", se.Server));
-                }
-
-                exception.Add(details);
-
-                if (e is AggregateException)
-                {
-                    AggregateException ae = (e as AggregateException);
-
-                    foreach (Exception ee in ae.InnerExceptions)
-                    {
-                        exceptions.Add(GetExceptionPrint(ee));
-                    }
-                }
-
-                if (e.InnerException != null)
-                {
-                    exceptions.Add(GetExceptionPrint(e.InnerException));
-                }
-
-                exception.Add(exceptions);
-            }
-
-            return exception;
-        }
-
-        /// <summary>
-        /// Logs the exception.
-        /// </summary>
-        /// <param name="ex">The ex.</param>
-        public static void LogException(
-            Exception ex)
-        {
-            if (AppTracing.Switch.ShouldTrace(TraceEventType.Critical))
-            {
-                if (ex != null)
-                {
-                    AppTracing.TraceCritical(ex.Message, ex);
-                }
             }
         }
 
@@ -618,44 +286,6 @@ namespace ParallelExecution
         }
 
         /// <summary>
-        /// Setups the tracing.
-        /// </summary>
-        private static void SetupTracing()
-        {
-            TextWriterTraceListener listener = (AppTracing.Listeners["GeneralListener"] as TextWriterTraceListener);
-
-            if (listener != null)
-            {
-                listener.Flush();
-
-                DateTime now = DateTime.UtcNow;
-
-                string logFolder = Environment.ExpandEnvironmentVariables(
-                    Path.Combine(
-                        GetConfigurationValueAsString(AllConfigurationKeys.mainLogFolder.ToString()),
-                        ApplicationName));
-
-                if (!Directory.Exists(logFolder))
-                {
-                    Directory.CreateDirectory(logFolder);
-                }
-
-                LogPath = Path.Combine(
-                    logFolder,
-                    string.Format(
-                        "{0:D4}.{1:D2}.{2:D2}-{3:D2}.{4:D2}.{5:D2}.log",
-                        now.Year,
-                        now.Month,
-                        now.Day,
-                        now.Hour,
-                        now.Minute,
-                        now.Second));
-
-                listener.Writer = new StreamWriter(LogPath);
-            }
-        }
-
-        /// <summary>
         /// Gets the configuration value.
         /// </summary>
         /// <param name="key">The key.</param>
@@ -718,14 +348,5 @@ namespace ParallelExecution
 
             return value;
         }
-    }
-
-    public enum SessionStatus : int
-    {
-        Draft = 0,
-        Queued = 1,
-        Processing = 2,
-        Failed = 3,
-        Complete = 4
     }
 }

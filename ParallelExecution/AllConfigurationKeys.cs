@@ -1,12 +1,11 @@
 
-namespace ParallelExecution
+namespace PE
 {
     /// <summary>
     /// 
     /// </summary>
     public enum AllConfigurationKeys
     {
-        mainLogFolder,
         maxDegreeOfParallelism,
         technicalTeamEmails,
         smtpServer,
