@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace PE
+namespace PE.Data
 {
     /// <summary>
     /// 
@@ -33,7 +33,7 @@ namespace PE
             {
                 dico.Add(
                     string.Format("@Parameter{0}", item.Key),
-                    item.Value);
+                    DataHelpers.ConvertForParameter(item.Value));
             }
 
             return dico;

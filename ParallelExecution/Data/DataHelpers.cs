@@ -220,7 +220,7 @@ namespace PE.Data
         /// </summary>
         /// <param name="value">The value.</param>
         /// <returns></returns>
-        private static object ConvertForParameter(
+        public static object ConvertForParameter(
             object value)
         {
             if (value == null)
