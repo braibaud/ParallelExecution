@@ -283,6 +283,7 @@ namespace PE.Data
                         SessionId = reader.GetGuid(reader.GetOrdinal("SessionId")),
                         SessionStatus = (SessionPartitionStatus)reader.GetInt32(reader.GetOrdinal("SessionStatus")),
                         MaxDegreeOfParallelism = reader.GetInt32(reader.GetOrdinal("MaxDegreeOfParallelism")),
+                        ContinueOnError = reader.GetBoolean(reader.GetOrdinal("ContinueOnError")),
                         PartitionStatement = reader.GetString(reader.GetOrdinal("PartitionStatement")),
                         PartitionCommand = reader.GetString(reader.GetOrdinal("PartitionCommand")),
                         DraftDate = (reader.IsDBNull(reader.GetOrdinal("DraftDate")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("DraftDate"))),

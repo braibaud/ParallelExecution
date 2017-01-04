@@ -1,21 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace PE.Data
 {
     /// <summary>
     /// 
     /// </summary>
-    public class Partition
+    public class Partition : ParallelExecutionPartition
     {
-        /// <summary>
-        /// Gets or sets the partition identifier.
-        /// </summary>
-        /// <value>
-        /// The partition identifier.
-        /// </value>
-        public Guid PartitionId { get; set; }
-
         /// <summary>
         /// The parameters
         /// </summary>

@@ -58,12 +58,24 @@ namespace PE
 
                 if (currentConfiguration != null)
                 {
+                    // Max Number of cores...
+                    int nbCores = 8;
+
+                    if ((currentConfiguration.MaxDegreeOfParallelism < -1) ||
+                        (currentConfiguration.MaxDegreeOfParallelism == 0) ||
+                        (currentConfiguration.MaxDegreeOfParallelism > nbCores))
+                    {
+                        currentConfiguration.MaxDegreeOfParallelism = -1;
+                    }
+
                     List<Partition> partitions = DataHelpers.GetPartitions(
                         null,
                         currentConfiguration.PartitionStatement);
 
                     foreach (Partition partition in partitions)
                     {
+                        partition.SessionId = currentConfiguration.SessionId;
+
                         partition.PartitionId = DataHelpers.usp_CreateParallelExecutionPartition(
                             null,
                             currentConfiguration.SessionId);
@@ -82,7 +94,7 @@ namespace PE
                     ParallelLoopResult ret = Parallel.ForEach(
                         partitions,
                         new ParallelOptions() { MaxDegreeOfParallelism = currentConfiguration.MaxDegreeOfParallelism },
-                        partition =>
+                        (partition, state) =>
                         {
                             bool success = false;
                             string error = null;
@@ -133,6 +145,8 @@ namespace PE
                             }
                             finally
                             {
+                                partition.PartitionStatus = (success ? SessionPartitionStatus.Complete : SessionPartitionStatus.Failed);
+
                                 DataHelpers.usp_SetStatus_ParallelExecutionPartition(
                                     null,
                                     currentConfiguration.SessionId,
@@ -140,7 +154,43 @@ namespace PE
                                     (success ? SessionPartitionStatus.Complete : SessionPartitionStatus.Failed),
                                     error);
                             }
+
+                            if (!success &&
+                                !currentConfiguration.ContinueOnError)
+                            {
+                                DataHelpers.usp_LogParallelExecutionEvent(
+                                    null,
+                                    currentConfiguration.SessionId,
+                                    partition.PartitionId,
+                                    ParallelExecutionEventStatus.Information,
+                                    "Stopping",
+                                    "Partition processing failed and the session is configured to stop on first partition failure (ContinueOnError = false).");
+
+                                state.Stop();
+                            }
                         });
+
+                    if (!ret.IsCompleted)
+                    {
+                        currentConfiguration.SessionStatus = SessionPartitionStatus.Failed;
+                    }
+                    else
+                    {
+                        if (partitions.Where(t => t.PartitionStatus != SessionPartitionStatus.Complete).Any())
+                        {
+
+                        }
+                        else
+                        {
+                            currentConfiguration.SessionStatus = SessionPartitionStatus.Complete;
+                        }
+                    }
+
+                    DataHelpers.usp_SetStatus_ParallelExecution(
+                        null,
+                        currentConfiguration.SessionId,
+                        currentConfiguration.SessionStatus,
+                        null);
                 }
             }
             catch (Exception e)
@@ -151,7 +201,12 @@ namespace PE
             return ExitCode;
         }
 
-        private static void TryAndReportException(Exception e)
+        /// <summary>
+        /// Tries the and report exception.
+        /// </summary>
+        /// <param name="e">The e.</param>
+        private static void TryAndReportException(
+            Exception e)
         {
             Guid? session = (currentConfiguration != null ? (Guid?)currentConfiguration.SessionId : null);
 

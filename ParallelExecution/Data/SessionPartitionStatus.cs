@@ -12,5 +12,4 @@ namespace PE.Data
         Failed = 3,
         Complete = 4
     }
-
 }
