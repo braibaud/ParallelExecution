@@ -16,7 +16,7 @@ namespace PE
         /// <summary>
         /// The application name
         /// </summary>
-        private const string ApplicationName = "ParallelExecution";
+        private const string ApplicationName = "ParallelExecution (PE)";
 
         /// <summary>
         /// Gets or sets the configuration keys.
@@ -59,13 +59,13 @@ namespace PE
                 if (currentConfiguration != null)
                 {
                     // Max Number of cores...
-                    int nbCores = 8;
+                    int nbCores = (DataHelpers.MaxDegreeOfParallelism ?? 8);
 
                     if ((currentConfiguration.MaxDegreeOfParallelism < -1) ||
                         (currentConfiguration.MaxDegreeOfParallelism == 0) ||
                         (currentConfiguration.MaxDegreeOfParallelism > nbCores))
                     {
-                        currentConfiguration.MaxDegreeOfParallelism = -1;
+                        currentConfiguration.MaxDegreeOfParallelism = nbCores;
                     }
 
                     List<Partition> partitions = DataHelpers.GetPartitions(
@@ -108,7 +108,7 @@ namespace PE
                                     SessionPartitionStatus.Processing,
                                     null);
 
-                                using (SqlConnection connection = new SqlConnection(GetConfigurationValueAsString(AllConfigurationKeys.mainConnectionString.ToString())))
+                                using (SqlConnection connection = new SqlConnection(DataHelpers.MainConnectionString))
                                 {
                                     connection.Open();
                                     connection.FireInfoMessageEventOnUserErrors = false;

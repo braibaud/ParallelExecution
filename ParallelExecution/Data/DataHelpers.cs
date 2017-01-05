@@ -25,6 +25,20 @@ namespace PE.Data
             }
         }
 
+        /// <summary>
+        /// Gets the maximum degree of parallelism.
+        /// </summary>
+        /// <value>
+        /// The maximum degree of parallelism.
+        /// </value>
+        public static int? MaxDegreeOfParallelism
+        {
+            get
+            {
+                return Program.GetConfigurationValueAsInteger(AllConfigurationKeys.maxDegreeOfParallelism.ToString());
+            }
+        }
+
 
         /// <summary>
         /// Executes the procedure and calls a function for each row returned.
