@@ -45,7 +45,8 @@ namespace PE
         /// Main function.
         /// </summary>
         /// <param name="args">The args.</param>
-        static int Main(string[] args)
+        static int Main(
+            string[] args)
         {
             ExitCode = 0;
             AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
@@ -58,139 +59,152 @@ namespace PE
 
                 if (currentConfiguration != null)
                 {
-                    // Max Number of cores...
-                    int nbCores = (DataHelpers.MaxDegreeOfParallelism ?? 8);
-
-                    if ((currentConfiguration.MaxDegreeOfParallelism < -1) ||
-                        (currentConfiguration.MaxDegreeOfParallelism == 0) ||
-                        (currentConfiguration.MaxDegreeOfParallelism > nbCores))
+                    try
                     {
-                        currentConfiguration.MaxDegreeOfParallelism = nbCores;
-                    }
+                        // Max Number of cores...
+                        int nbCores = (DataHelpers.MaxDegreeOfParallelism ?? 8);
 
-                    List<Partition> partitions = DataHelpers.GetPartitions(
-                        null,
-                        currentConfiguration.PartitionStatement);
-
-                    foreach (Partition partition in partitions)
-                    {
-                        partition.SessionId = currentConfiguration.SessionId;
-
-                        partition.PartitionId = DataHelpers.usp_CreateParallelExecutionPartition(
-                            null,
-                            currentConfiguration.SessionId);
-
-                        foreach (KeyValuePair<int, object> parameter in partition.Parameters)
+                        if ((currentConfiguration.MaxDegreeOfParallelism < -1) ||
+                            (currentConfiguration.MaxDegreeOfParallelism == 0) ||
+                            (currentConfiguration.MaxDegreeOfParallelism > nbCores))
                         {
-                            DataHelpers.usp_CreateParallelExecutionPartitionParameter(
-                                null,
-                                currentConfiguration.SessionId,
-                                partition.PartitionId,
-                                parameter.Key,
-                                parameter.Value);
+                            currentConfiguration.MaxDegreeOfParallelism = nbCores;
                         }
-                    }
 
-                    ParallelLoopResult ret = Parallel.ForEach(
-                        partitions,
-                        new ParallelOptions() { MaxDegreeOfParallelism = currentConfiguration.MaxDegreeOfParallelism },
-                        (partition, state) =>
+                        List<Partition> partitions = DataHelpers.GetPartitions(
+                            null,
+                            currentConfiguration.PartitionStatement);
+
+                        foreach (Partition partition in partitions)
                         {
-                            bool success = false;
-                            string error = null;
+                            partition.SessionId = currentConfiguration.SessionId;
 
-                            try
+                            partition.PartitionId = DataHelpers.usp_CreateParallelExecutionPartition(
+                                null,
+                                currentConfiguration.SessionId);
+
+                            foreach (KeyValuePair<int, object> parameter in partition.Parameters)
                             {
-                                DataHelpers.usp_SetStatus_ParallelExecutionPartition(
+                                DataHelpers.usp_CreateParallelExecutionPartitionParameter(
                                     null,
                                     currentConfiguration.SessionId,
                                     partition.PartitionId,
-                                    SessionPartitionStatus.Processing,
-                                    null);
+                                    parameter.Key,
+                                    parameter.Value);
+                            }
+                        }
 
-                                using (SqlConnection connection = new SqlConnection(DataHelpers.MainConnectionString))
+                        ParallelLoopResult ret = Parallel.ForEach(
+                            partitions,
+                            new ParallelOptions() { MaxDegreeOfParallelism = currentConfiguration.MaxDegreeOfParallelism },
+                            (partition, state) =>
+                            {
+                                bool success = false;
+                                string error = null;
+
+                                try
                                 {
-                                    connection.Open();
-                                    connection.FireInfoMessageEventOnUserErrors = false;
-                                    connection.InfoMessage += (sender, message) =>
-                                                              {
-                                                                  DataHelpers.usp_LogParallelExecutionEvent(
-                                                                      null,
-                                                                      currentConfiguration.SessionId,
-                                                                      partition.PartitionId,
-                                                                      ParallelExecutionEventStatus.Information,
-                                                                      "InfoMessage",
-                                                                      message.Message);
-                                                              };
+                                    DataHelpers.usp_SetStatus_ParallelExecutionPartition(
+                                        null,
+                                        currentConfiguration.SessionId,
+                                        partition.PartitionId,
+                                        SessionPartitionStatus.Processing,
+                                        null);
 
-                                    DataHelpers.Execute_Statement_NonQuery(
-                                        connection,
-                                        currentConfiguration.PartitionCommand,
-                                        partition.GetSqlParameters());
+                                    using (SqlConnection connection = new SqlConnection(DataHelpers.MainConnectionString))
+                                    {
+                                        connection.Open();
+                                        connection.FireInfoMessageEventOnUserErrors = false;
+                                        connection.InfoMessage += (sender, message) =>
+                                                                  {
+                                                                      DataHelpers.usp_LogParallelExecutionEvent(
+                                                                          null,
+                                                                          currentConfiguration.SessionId,
+                                                                          partition.PartitionId,
+                                                                          ParallelExecutionEventStatus.Information,
+                                                                          "InfoMessage",
+                                                                          message.Message);
+                                                                  };
+
+                                        DataHelpers.Execute_Statement_NonQuery(
+                                            connection,
+                                            currentConfiguration.PartitionCommand,
+                                            partition.GetSqlParameters());
+                                    }
+
+                                    success = true;
+                                }
+                                catch (Exception e)
+                                {
+                                    error = e.Message;
+
+                                    DataHelpers.usp_LogParallelExecutionEvent(
+                                        null,
+                                        currentConfiguration.SessionId,
+                                        partition.PartitionId,
+                                        ParallelExecutionEventStatus.Error,
+                                        e.Message,
+                                        e.ToString());
+                                }
+                                finally
+                                {
+                                    partition.PartitionStatus = (success ? SessionPartitionStatus.Complete : SessionPartitionStatus.Failed);
+
+                                    DataHelpers.usp_SetStatus_ParallelExecutionPartition(
+                                        null,
+                                        currentConfiguration.SessionId,
+                                        partition.PartitionId,
+                                        (success ? SessionPartitionStatus.Complete : SessionPartitionStatus.Failed),
+                                        error);
                                 }
 
-                                success = true;
-                            }
-                            catch (Exception e)
-                            {
-                                error = e.Message;
+                                if (!success &&
+                                    !currentConfiguration.ContinueOnError)
+                                {
+                                    DataHelpers.usp_LogParallelExecutionEvent(
+                                        null,
+                                        currentConfiguration.SessionId,
+                                        partition.PartitionId,
+                                        ParallelExecutionEventStatus.Information,
+                                        "Stopping",
+                                        "Partition processing failed and the session is configured to stop on first partition failure (ContinueOnError = false).");
 
-                                DataHelpers.usp_LogParallelExecutionEvent(
-                                    null,
-                                    currentConfiguration.SessionId,
-                                    partition.PartitionId,
-                                    ParallelExecutionEventStatus.Error,
-                                    e.Message,
-                                    e.ToString());
-                            }
-                            finally
-                            {
-                                partition.PartitionStatus = (success ? SessionPartitionStatus.Complete : SessionPartitionStatus.Failed);
+                                    state.Stop();
+                                }
+                            });
 
-                                DataHelpers.usp_SetStatus_ParallelExecutionPartition(
-                                    null,
-                                    currentConfiguration.SessionId,
-                                    partition.PartitionId,
-                                    (success ? SessionPartitionStatus.Complete : SessionPartitionStatus.Failed),
-                                    error);
-                            }
-
-                            if (!success &&
-                                !currentConfiguration.ContinueOnError)
-                            {
-                                DataHelpers.usp_LogParallelExecutionEvent(
-                                    null,
-                                    currentConfiguration.SessionId,
-                                    partition.PartitionId,
-                                    ParallelExecutionEventStatus.Information,
-                                    "Stopping",
-                                    "Partition processing failed and the session is configured to stop on first partition failure (ContinueOnError = false).");
-
-                                state.Stop();
-                            }
-                        });
-
-                    if (!ret.IsCompleted)
-                    {
-                        currentConfiguration.SessionStatus = SessionPartitionStatus.Failed;
-                    }
-                    else
-                    {
-                        if (partitions.Where(t => t.PartitionStatus != SessionPartitionStatus.Complete).Any())
+                        if (!ret.IsCompleted)
                         {
-
+                            currentConfiguration.SessionStatus = SessionPartitionStatus.Failed;
                         }
                         else
                         {
-                            currentConfiguration.SessionStatus = SessionPartitionStatus.Complete;
+                            if (partitions.Where(t => t.PartitionStatus != SessionPartitionStatus.Complete).Any())
+                            {
+                                // In theory, we should never end up there, but...
+                                currentConfiguration.SessionStatus = SessionPartitionStatus.Failed;
+                            }
+                            else
+                            {
+                                currentConfiguration.SessionStatus = SessionPartitionStatus.Complete;
+                            }
                         }
                     }
+                    finally
+                    {
+                        // Make sure we are setting the status to either Failed or Complete...
+                        if (currentConfiguration.SessionStatus < SessionPartitionStatus.Failed)
+                        {
+                            currentConfiguration.SessionStatus = SessionPartitionStatus.Failed;
+                        }
 
-                    DataHelpers.usp_SetStatus_ParallelExecution(
-                        null,
-                        currentConfiguration.SessionId,
-                        currentConfiguration.SessionStatus,
-                        null);
+                        // Update overall status...
+                        DataHelpers.usp_SetStatus_ParallelExecution(
+                            null,
+                            currentConfiguration.SessionId,
+                            currentConfiguration.SessionStatus,
+                            null);
+                    }
                 }
             }
             catch (Exception e)
