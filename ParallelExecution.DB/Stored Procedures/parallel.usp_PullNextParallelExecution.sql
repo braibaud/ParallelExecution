@@ -1,9 +1,10 @@
+
 SET QUOTED_IDENTIFIER ON
 GO
 SET ANSI_NULLS ON
 GO
 
-CREATE procedure [parallel].[usp_PullNextParallelExecution]
+CREATE procedure parallel.usp_PullNextParallelExecution
 as
   begin
     declare @SessionId uniqueidentifier = null;
@@ -78,12 +79,12 @@ as
     declare @Comments nvarchar(1024) = 'SessionID: ' + isnull(convert(nvarchar(128), @SessionId), '<NULL>')
 
     exec parallel.usp_LogParallelExecutionEvent
-      @SessionId = @SessionId,
-      @PartitionId = null,
-      @LogStatus = 5, /* Information = 5, Warning = 6, Error = 7, Critical = 8 */
-      @LogDate = null, /* Logs event as 'now' */
-      @Title = N'Session pulled via parallel.usp_PullNextParallelExecution call.',
-      @Comments = @Comments
+      @SessionId = @SessionId
+     ,@PartitionId = null
+     ,@LogStatus = 100 /* Information = 5, Warning = 6, Error = 7, Critical = 8, Important = 100 */
+     ,@LogDate = null /* Logs event as 'now' */
+     ,@Title = N'Session pulled via parallel.usp_PullNextParallelExecution call.'
+     ,@Comments = @Comments
   end
 
 GO

@@ -8,6 +8,7 @@ namespace PE.Data
         public SessionPartitionStatus SessionStatus { get; set; }
         public int MaxDegreeOfParallelism { get; set; }
         public bool ContinueOnError { get; set; }
+        public ParallelExecutionEventStatus LogLevel { get; set; }
         public string PartitionStatement { get; set; }
         public string PartitionCommand { get; set; }
         public Nullable<System.DateTime> DraftDate { get; set; }

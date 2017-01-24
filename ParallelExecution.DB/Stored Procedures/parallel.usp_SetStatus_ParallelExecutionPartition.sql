@@ -1,9 +1,10 @@
+
 SET QUOTED_IDENTIFIER ON
 GO
 SET ANSI_NULLS ON
 GO
 
-CREATE procedure [parallel].[usp_SetStatus_ParallelExecutionPartition]
+CREATE procedure parallel.usp_SetStatus_ParallelExecutionPartition
   @SessionID uniqueidentifier
  ,@PartitionID uniqueidentifier
  ,@PartitionStatus int /* Draft = 0, Queued = 1, Processing = 2, Failed = 3, Complete = 4 */
@@ -59,9 +60,9 @@ as
       + left(isnull(@Comments, '<NULL>'), 512)
 
     exec parallel.usp_LogParallelExecutionEvent
-      @SessionID = @SessionId
-     ,@PartitionID = @PartitionID
-     ,@LogStatus = 5 /* Information = 5, Warning = 6, Error = 7, Critical = 8 */
+      @SessionId = @SessionId
+     ,@PartitionId = @PartitionID
+     ,@LogStatus = 100 /* Information = 5, Warning = 6, Error = 7, Critical = 8, Important = 100 */
      ,@LogDate = null /* Logs event as 'now' */
      ,@Title = N'Session status updated via parallel.usp_SetStatus_ParallelExecutionPartition call.'
      ,@Comments = @Comments_

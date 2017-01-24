@@ -1,3 +1,4 @@
+
 SET QUOTED_IDENTIFIER ON
 GO
 SET ANSI_NULLS ON
@@ -7,6 +8,7 @@ CREATE procedure [parallel].[usp_CreateParallelExecution]
   @Status int = 0
  ,@MaxDegreeOfParallelism int = 1
  ,@ContinueOnError bit = 1
+ ,@LogLevel int = 6 /* Information = 5, Warning = 6, Error = 7, Critical = 8, Important = 100 */
  ,@PartitionStatement nvarchar(max)
  ,@PartitionCommand nvarchar(max)
  ,@SessionId uniqueidentifier output
@@ -34,6 +36,7 @@ as
             ,SessionStatus
             ,MaxDegreeOfParallelism
             ,ContinueOnError
+            ,LogLevel
             ,PartitionStatement
             ,PartitionCommand
             ,DraftDate
@@ -45,6 +48,7 @@ as
             ,@Status
             ,@MaxDegreeOfParallelism
             ,@ContinueOnError
+            ,@LogLevel
             ,@PartitionStatement
             ,@PartitionCommand
             ,(case when @Status = 0 then getutcdate()
@@ -62,7 +66,7 @@ as
     exec parallel.usp_LogParallelExecutionEvent
       @SessionId = @SessionId,
       @PartitionId = null,
-      @LogStatus = 5, /* Information = 5, Warning = 6, Error = 7, Critical = 8 */
+      @LogStatus = 100, /* Information = 5, Warning = 6, Error = 7, Critical = 8, Important = 100 */
       @LogDate = null, /* Logs event as 'now' */
       @Title = N'Session created via parallel.usp_CreateParallelExecution call.',
       @Comments = @Comments

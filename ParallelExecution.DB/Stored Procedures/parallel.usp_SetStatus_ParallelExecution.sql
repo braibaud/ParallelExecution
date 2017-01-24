@@ -1,3 +1,4 @@
+
 SET QUOTED_IDENTIFIER ON
 GO
 SET ANSI_NULLS ON
@@ -62,7 +63,7 @@ as
     exec parallel.usp_LogParallelExecutionEvent
       @SessionId = @SessionId,
       @PartitionId = null,
-      @LogStatus = 5, /* Information = 5, Warning = 6, Error = 7, Critical = 8 */
+      @LogStatus = 100, /* Information = 5, Warning = 6, Error = 7, Critical = 8, Important = 100 */
       @LogDate = null, /* Logs event as 'now' */
       @Title = N'Session status updated via parallel.usp_SetStatus_ParallelExecution call.',
       @Comments = @Comments_

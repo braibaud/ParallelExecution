@@ -121,7 +121,7 @@ namespace PE
                                                                           null,
                                                                           currentConfiguration.SessionId,
                                                                           partition.PartitionId,
-                                                                          ParallelExecutionEventStatus.Information,
+                                                                          TranslateSeverity(message.Errors),
                                                                           "InfoMessage",
                                                                           message.Message);
                                                                   };
@@ -133,6 +133,18 @@ namespace PE
                                     }
 
                                     success = true;
+                                }
+                                catch (SqlException se)
+                                {
+                                    error = se.Message;
+
+                                    DataHelpers.usp_LogParallelExecutionEvent(
+                                        null,
+                                        currentConfiguration.SessionId,
+                                        partition.PartitionId,
+                                        TranslateSeverity(se.Errors),
+                                        se.Message,
+                                        se.ToString());
                                 }
                                 catch (Exception e)
                                 {
@@ -165,7 +177,7 @@ namespace PE
                                         null,
                                         currentConfiguration.SessionId,
                                         partition.PartitionId,
-                                        ParallelExecutionEventStatus.Information,
+                                        ParallelExecutionEventStatus.Important,
                                         "Stopping",
                                         "Partition processing failed and the session is configured to stop on first partition failure (ContinueOnError = false).");
 
@@ -216,6 +228,44 @@ namespace PE
         }
 
         /// <summary>
+        /// Translates the severity.
+        /// </summary>
+        /// <param name="errors">The errors.</param>
+        /// <returns></returns>
+        private static ParallelExecutionEventStatus TranslateSeverity(
+            SqlErrorCollection errors)
+        {
+            ParallelExecutionEventStatus status = ParallelExecutionEventStatus.Information;
+
+            if ((errors != null) &&
+                (errors.Count > 0))
+            {
+                byte highest = errors
+                    .OfType<SqlError>()
+                    .Max(t => t.Class);
+
+                if (highest <= 10)
+                {
+                    status = ParallelExecutionEventStatus.Information;
+                }
+                else if (highest <= 16)
+                {
+                    status = ParallelExecutionEventStatus.Warning;
+                }
+                else if (highest <= 19)
+                {
+                    status = ParallelExecutionEventStatus.Error;
+                }
+                else
+                {
+                    status = ParallelExecutionEventStatus.Critical;
+                }
+            }
+
+            return status;
+        }
+
+        /// <summary>
         /// Tries the and report exception.
         /// </summary>
         /// <param name="e">The e.</param>
@@ -224,11 +274,18 @@ namespace PE
         {
             Guid? session = (currentConfiguration != null ? (Guid?)currentConfiguration.SessionId : null);
 
+            ParallelExecutionEventStatus status = ParallelExecutionEventStatus.Error;
+
+            if (e is SqlException)
+            {
+                status = TranslateSeverity((e as SqlException).Errors);
+            }
+
             DataHelpers.usp_LogParallelExecutionEvent(
                 null,
                 session,
                 null,
-                ParallelExecutionEventStatus.Error,
+                status,
                 e.Message,
                 e.ToString());
         }

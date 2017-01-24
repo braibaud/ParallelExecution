@@ -6,7 +6,8 @@ namespace PE.Data
         Information = 5,
         Warning = 6,
         Error = 7,
-        Critical = 8
+        Critical = 8,
+        Important = 100
     }
 
 }

@@ -298,6 +298,7 @@ namespace PE.Data
                         SessionStatus = (SessionPartitionStatus)reader.GetInt32(reader.GetOrdinal("SessionStatus")),
                         MaxDegreeOfParallelism = reader.GetInt32(reader.GetOrdinal("MaxDegreeOfParallelism")),
                         ContinueOnError = reader.GetBoolean(reader.GetOrdinal("ContinueOnError")),
+                        LogLevel = (ParallelExecutionEventStatus)reader.GetInt32(reader.GetOrdinal("LogLevel")),
                         PartitionStatement = reader.GetString(reader.GetOrdinal("PartitionStatement")),
                         PartitionCommand = reader.GetString(reader.GetOrdinal("PartitionCommand")),
                         DraftDate = (reader.IsDBNull(reader.GetOrdinal("DraftDate")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("DraftDate"))),
@@ -312,7 +313,7 @@ namespace PE.Data
         }
 
         /// <summary>
-        /// Usp_s the create parallel execution partition.
+        /// create parallel execution partition.
         /// </summary>
         /// <param name="connection">The connection.</param>
         /// <param name="sessionID">The session identifier.</param>
